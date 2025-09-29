@@ -101,6 +101,60 @@ const xTicks = [
   620, 640, 660, 680, 700
 ]
 
+const VISIBLE_RANGE = { min: 380, max: 780 }
+
+function wavelengthToRGB(wavelength) {
+  if (Number.isNaN(wavelength) || wavelength < VISIBLE_RANGE.min || wavelength > VISIBLE_RANGE.max) {
+    return { r: 0, g: 0, b: 0, alpha: 0 }
+  }
+
+  let red = 0
+  let green = 0
+  let blue = 0
+
+  if (wavelength < 440) {
+    red = -(wavelength - 440) / (440 - 380)
+    blue = 1
+  } else if (wavelength < 490) {
+    green = (wavelength - 440) / (490 - 440)
+    blue = 1
+  } else if (wavelength < 510) {
+    green = 1
+    blue = -(wavelength - 510) / (510 - 490)
+  } else if (wavelength < 580) {
+    red = (wavelength - 510) / (580 - 510)
+    green = 1
+  } else if (wavelength < 645) {
+    red = 1
+    green = -(wavelength - 645) / (645 - 580)
+  } else {
+    red = 1
+  }
+
+  let intensityFactor = 1
+  if (wavelength < 420) {
+    intensityFactor = 0.3 + (0.7 * (wavelength - 380)) / (420 - 380)
+  } else if (wavelength > 700) {
+    intensityFactor = 0.3 + (0.7 * (VISIBLE_RANGE.max - wavelength)) / (VISIBLE_RANGE.max - 700)
+  }
+
+  const normalise = (value) => Math.round(255 * value * intensityFactor)
+
+  return {
+    r: normalise(red),
+    g: normalise(green),
+    b: normalise(blue),
+    alpha: Number(intensityFactor.toFixed(2)),
+  }
+}
+
+function formatRGB({ r, g, b, alpha }) {
+  if (typeof alpha === 'number') {
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`
+  }
+  return `rgb(${r}, ${g}, ${b})`
+}
+
 function SpectralChart({ spectrum, peaks, title }) {
   const width = 640
   const height = 280
@@ -292,8 +346,120 @@ function dominantPeak(sample) {
   }, null)
 }
 
+function RGBSpectrumVisualizer({ input, onChange }) {
+  const { wavelengths, invalidTokens } = useMemo(() => {
+    const tokens = input.split(/[^0-9.]+/)
+    const parsed = tokens
+      .map((token) => Number.parseFloat(token))
+      .filter((value) => !Number.isNaN(value))
+
+    const valid = parsed.filter(
+      (value) => value >= VISIBLE_RANGE.min && value <= VISIBLE_RANGE.max
+    )
+
+    const invalid = parsed.filter(
+      (value) => value < VISIBLE_RANGE.min || value > VISIBLE_RANGE.max
+    )
+
+    return { wavelengths: valid, invalidTokens: invalid }
+  }, [input])
+
+  const spectrum = useMemo(
+    () =>
+      wavelengths.map((wavelength) => ({
+        wavelength,
+        color: wavelengthToRGB(wavelength),
+      })),
+    [wavelengths]
+  )
+
+  const formatWavelength = (value) => (Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1))
+  const formatInvalid = formatWavelength
+
+  const gradientStops = [...spectrum]
+    .sort((a, b) => a.wavelength - b.wavelength)
+    .map(({ wavelength, color }) => {
+      const position = ((wavelength - VISIBLE_RANGE.min) / (VISIBLE_RANGE.max - VISIBLE_RANGE.min)) * 100
+      return `${formatRGB(color)} ${position.toFixed(1)}%`
+    })
+    .join(', ')
+
+  const gradientStyle = spectrum.length
+    ? { backgroundImage: `linear-gradient(90deg, ${gradientStops})` }
+    : { backgroundColor: 'rgba(15, 23, 42, 0.65)' }
+
+  return (
+    <section className="panel panel-rgb" aria-labelledby="rgb-visualizer-heading">
+      <div className="panel-header">
+        <h3 id="rgb-visualizer-heading">RGB Spectrum Visualizer</h3>
+        <p className="panel-description">
+          Enter wavelengths between 380 nm and 780 nm to approximate their contribution to the visible
+          RGB spectrum.
+        </p>
+      </div>
+
+      <label className="rgb-input-label" htmlFor="wavelength-dataset">
+        Wavelength dataset
+      </label>
+      <textarea
+        id="wavelength-dataset"
+        value={input}
+        onChange={(event) => onChange(event.target.value)}
+        className="rgb-input"
+        placeholder="e.g. 450, 495, 570, 615, 680"
+        rows={3}
+      />
+      <p className="input-hint">
+        Separate values with commas, spaces, or line breaks. Values outside the visible range are ignored.
+      </p>
+      {invalidTokens.length > 0 && (
+        <p className="input-warning" role="status">
+          Ignored {invalidTokens.length} value{invalidTokens.length > 1 ? 's' : ''} outside the visible
+          range{invalidTokens.length <= 5
+            ? `: ${invalidTokens.map((value) => formatInvalid(value)).join(', ')}`
+            : ` (showing first 5: ${invalidTokens
+                .slice(0, 5)
+                .map((value) => formatInvalid(value))
+                .join(', ')}…)`}.
+        </p>
+      )}
+
+      <div
+        className="spectrum-preview"
+        style={gradientStyle}
+        role="img"
+        aria-label={
+          spectrum.length
+            ? `Spectrum preview with ${spectrum.length} wavelength${spectrum.length > 1 ? 's' : ''}.`
+            : 'Empty spectrum preview'
+        }
+      />
+
+      <ul className="rgb-swatches">
+        {spectrum.map(({ wavelength, color }) => {
+          const cssColor = formatRGB(color)
+          return (
+            <li key={wavelength} className="rgb-swatch">
+              <span className="swatch-chip" style={{ backgroundColor: cssColor }} aria-hidden="true" />
+              <div>
+                <p className="swatch-wavelength">{formatWavelength(wavelength)} nm</p>
+                <p className="swatch-rgb">{cssColor}</p>
+                <p className="swatch-alpha">Relative intensity ×{color.alpha.toFixed(2)}</p>
+              </div>
+            </li>
+          )
+        })}
+        {spectrum.length === 0 && (
+          <li className="rgb-swatch empty">Add wavelengths to see their approximate colours.</li>
+        )}
+      </ul>
+    </section>
+  )
+}
+
 function App() {
   const [selectedSampleId, setSelectedSampleId] = useState(SPECTRA[0].id)
+  const [wavelengthInput, setWavelengthInput] = useState('450, 495, 570, 615, 680')
 
   const selectedSample = useMemo(
     () => SPECTRA.find((sample) => sample.id === selectedSampleId) ?? SPECTRA[0],
@@ -410,6 +576,8 @@ function App() {
             </tbody>
           </table>
         </section>
+
+        <RGBSpectrumVisualizer input={wavelengthInput} onChange={setWavelengthInput} />
       </main>
     </div>
   )
