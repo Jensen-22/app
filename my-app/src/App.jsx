@@ -21,7 +21,7 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max)
 }
 
-function wavelengthToRGB(wavelength, reflectance = 1) {
+function wavelengthToRGB(wavelength, intensity = 1) {
   if (Number.isNaN(wavelength) || wavelength < VISIBLE_RANGE.min || wavelength > VISIBLE_RANGE.max) {
     return { r: 0, g: 0, b: 0, alpha: 0 }
   }
@@ -56,8 +56,7 @@ function wavelengthToRGB(wavelength, reflectance = 1) {
     visibilityFactor = 0.3 + (0.7 * (VISIBLE_RANGE.max - wavelength)) / (VISIBLE_RANGE.max - 700)
   }
 
-  const reflectanceFactor = clamp(reflectance, 0, 1)
-  const intensityFactor = visibilityFactor * reflectanceFactor
+  const intensityFactor = visibilityFactor * clamp(intensity, 0, 1)
   const normalise = (value) => Math.round(255 * value * intensityFactor)
 
   return {
@@ -91,22 +90,22 @@ function parseDataset(input) {
       .filter((value) => !Number.isNaN(value))
 
     if (numbers.length < 2) {
-      warnings.push(`Line ${lineIndex + 1}: enter both wavelength and reflectance values.`)
+      warnings.push(`Line ${lineIndex + 1}: enter both wavelength and intensity values.`)
       return
     }
 
-    const [wavelength, reflectance] = numbers
+    const [wavelength, intensity] = numbers
     if (wavelength < VISIBLE_RANGE.min || wavelength > VISIBLE_RANGE.max) {
       warnings.push(`Line ${lineIndex + 1}: ${wavelength.toFixed(1)} nm is outside the visible range.`)
       return
     }
 
-    if (reflectance < 0 || reflectance > 1) {
-      warnings.push(`Line ${lineIndex + 1}: reflectance ${reflectance.toFixed(2)} must be between 0 and 1.`)
+    if (intensity < 0 || intensity > 1) {
+      warnings.push(`Line ${lineIndex + 1}: intensity ${intensity.toFixed(2)} must be between 0 and 1.`)
       return
     }
 
-    points.push({ wavelength, reflectance })
+    points.push({ wavelength, intensity })
   })
 
   points.sort((a, b) => a.wavelength - b.wavelength)
@@ -125,11 +124,11 @@ function detectPeaks(points) {
     const prev = points[index - 1]
     const next = points[index + 1]
 
-    const isLeftHigher = !prev || current.reflectance >= prev.reflectance
-    const isRightHigher = !next || current.reflectance >= next.reflectance
+    const isLeftHigher = !prev || current.intensity >= prev.intensity
+    const isRightHigher = !next || current.intensity >= next.intensity
     const isStrictPeak =
-      (prev && current.reflectance > prev.reflectance) ||
-      (next && current.reflectance > next.reflectance)
+      (prev && current.intensity > prev.intensity) ||
+      (next && current.intensity > next.intensity)
 
     if (isLeftHigher && isRightHigher && (prev || next)) {
       if (!prev || !next || isStrictPeak) {
@@ -138,14 +137,14 @@ function detectPeaks(points) {
     }
   }
 
-  return peaks.sort((a, b) => b.reflectance - a.reflectance)
+  return peaks.sort((a, b) => b.intensity - a.intensity)
 }
 
-function formatReflectance(value) {
+function formatIntensity(value) {
   return value >= 0.995 ? '1.00' : value.toFixed(2)
 }
 
-function ReflectanceChart({ points, peaks }) {
+function IntensityChart({ points, peaks }) {
   const width = 720
   const height = 360
   const padding = { top: 36, right: 32, bottom: 56, left: 72 }
@@ -153,18 +152,17 @@ function ReflectanceChart({ points, peaks }) {
   const chartWidth = width - padding.left - padding.right
   const chartHeight = height - padding.top - padding.bottom
 
-  const maxReflectance = points.length > 0 ? Math.max(1, ...points.map((point) => point.reflectance)) : 1
+  const maxIntensity = points.length > 0 ? Math.max(1, ...points.map((point) => point.intensity)) : 1
 
   const toX = (wavelength) =>
     padding.left + ((wavelength - VISIBLE_RANGE.min) / (VISIBLE_RANGE.max - VISIBLE_RANGE.min)) * chartWidth
 
-  const toY = (reflectance) =>
-    padding.top + chartHeight - (reflectance / maxReflectance) * chartHeight
+  const toY = (intensity) => padding.top + chartHeight - (intensity / maxIntensity) * chartHeight
 
   const pathD = points
     .map((point, index) => {
       const command = index === 0 ? 'M' : 'L'
-      return `${command}${toX(point.wavelength)},${toY(point.reflectance)}`
+      return `${command}${toX(point.wavelength)},${toY(point.intensity)}`
     })
     .join(' ')
 
@@ -176,18 +174,18 @@ function ReflectanceChart({ points, peaks }) {
 
   const yTickCount = 4
   const yTicks = Array.from({ length: yTickCount + 1 }, (_, tickIndex) =>
-    Number.parseFloat(((maxReflectance / yTickCount) * tickIndex).toFixed(2))
+    Number.parseFloat(((maxIntensity / yTickCount) * tickIndex).toFixed(2))
   )
 
   return (
     <figure className="chart" aria-labelledby="chart-title">
       <figcaption id="chart-title" className="sr-only">
-        Reflectance spectrum plotted against wavelength in nanometres
+        Intensity spectrum plotted against wavelength in nanometres
       </figcaption>
       <svg
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label="Reflectance versus wavelength"
+        aria-label="Intensity versus wavelength"
         preserveAspectRatio="xMidYMid meet"
       >
         <defs>
@@ -232,9 +230,9 @@ function ReflectanceChart({ points, peaks }) {
             <g className="chart__points">
               {points.map((point) => (
                 <circle
-                  key={`${point.wavelength}-${point.reflectance}`}
+                  key={`${point.wavelength}-${point.intensity}`}
                   cx={toX(point.wavelength)}
-                  cy={toY(point.reflectance)}
+                  cy={toY(point.intensity)}
                   r={4}
                   className="chart__point"
                 />
@@ -242,15 +240,15 @@ function ReflectanceChart({ points, peaks }) {
             </g>
             <g className="chart__peaks">
               {peaks.map((peak) => (
-                <g key={`peak-${peak.wavelength}-${peak.reflectance}`} className="chart__peak">
+                <g key={`peak-${peak.wavelength}-${peak.intensity}`} className="chart__peak">
                   <line
                     x1={toX(peak.wavelength)}
                     x2={toX(peak.wavelength)}
-                    y1={toY(peak.reflectance)}
+                    y1={toY(peak.intensity)}
                     y2={padding.top + chartHeight}
                   />
-                  <circle cx={toX(peak.wavelength)} cy={toY(peak.reflectance)} r={7} />
-                  <text x={toX(peak.wavelength)} y={toY(peak.reflectance) - 14}>
+                  <circle cx={toX(peak.wavelength)} cy={toY(peak.intensity)} r={7} />
+                  <text x={toX(peak.wavelength)} y={toY(peak.intensity) - 14}>
                     {`${peak.wavelength.toFixed(0)} nm`}
                   </text>
                 </g>
@@ -282,14 +280,14 @@ function ReflectanceChart({ points, peaks }) {
             className="chart__axis-label"
             transform={`translate(${24} ${padding.top + chartHeight / 2}) rotate(-90)`}
           >
-            Reflectance
+            Intensity
           </text>
         </g>
       </svg>
 
       {points.length === 0 && (
         <p className="chart__empty" role="status">
-          Add wavelength and reflectance values to plot the spectrum.
+          Add wavelength and intensity values to plot the spectrum.
         </p>
       )}
     </figure>
@@ -312,7 +310,7 @@ function App() {
 
     const gradientStops = points
       .map((point) => {
-        const color = wavelengthToRGB(point.wavelength, point.reflectance)
+        const color = wavelengthToRGB(point.wavelength, point.intensity)
         const position = ((point.wavelength - VISIBLE_RANGE.min) / (VISIBLE_RANGE.max - VISIBLE_RANGE.min)) * 100
         return `${formatRGB(color)} ${position.toFixed(1)}%`
       })
@@ -327,10 +325,10 @@ function App() {
   return (
     <div className="app">
       <header className="app__header">
-        <h1>RGB Reflectance Spectrum Visualiser</h1>
+        <h1>RGB Spectrum Intensity Visualiser</h1>
         <p>
-          Enter a dataset of reflected wavelengths and their relative reflectance values to explore how the spectrum shifts
-          across the visible range. Peaks highlight where an object reflects the most light.
+          Enter a dataset of wavelengths and relative intensity values to explore how the spectrum shifts across the
+          visible range. Peaks highlight where an object emits or reflects the most light.
         </p>
       </header>
 
@@ -338,7 +336,7 @@ function App() {
         <section className="visualiser__inputs" aria-labelledby="dataset-label">
           <div className="inputs__header">
             <h2 id="dataset-label">Wavelength dataset</h2>
-            <p>Provide wavelength (nm) and reflectance pairs. One pair per line, separated by spaces or commas.</p>
+            <p>Provide wavelength (nm) and intensity pairs. One pair per line, separated by spaces or commas.</p>
           </div>
           <textarea
             className="dataset-input"
@@ -349,7 +347,7 @@ function App() {
             aria-describedby="dataset-hint"
           />
           <p id="dataset-hint" className="input-hint">
-            Visible wavelengths run from 380&nbsp;nm to 780&nbsp;nm. Reflectance values should be between 0 and 1.
+            Visible wavelengths run from 380&nbsp;nm to 780&nbsp;nm. Intensity values should be between 0 and 1.
           </p>
           {warnings.length > 0 && (
             <ul className="input-warnings" role="status">
@@ -358,23 +356,23 @@ function App() {
               ))}
             </ul>
           )}
-          <div className="spectrum-preview" style={previewStyle} role="img" aria-label="RGB preview of the reflected spectrum" />
+          <div className="spectrum-preview" style={previewStyle} role="img" aria-label="RGB preview of the intensity spectrum" />
         </section>
 
         <section className="visualiser__chart">
-          <h2>Reflectance spectrum</h2>
-          <ReflectanceChart points={points} peaks={peaks} />
+          <h2>Intensity spectrum</h2>
+          <IntensityChart points={points} peaks={peaks} />
         </section>
 
         <section className="visualiser__peaks">
-          <h2>Detected reflectance peaks</h2>
+          <h2>Detected intensity peaks</h2>
           {peaks.length > 0 ? (
             <ul className="peaks-list">
               {peaks.map((peak) => (
-                <li key={`peak-list-${peak.wavelength}-${peak.reflectance}`}>
+                <li key={`peak-list-${peak.wavelength}-${peak.intensity}`}>
                   <span className="peaks-list__wavelength">{peak.wavelength.toFixed(0)} nm</span>
-                  <span className="peaks-list__reflectance">{formatReflectance(peak.reflectance)}</span>
-                  <span className="peaks-list__label">relative reflectance</span>
+                  <span className="peaks-list__intensity">{formatIntensity(peak.intensity)}</span>
+                  <span className="peaks-list__label">relative intensity</span>
                 </li>
               ))}
             </ul>
