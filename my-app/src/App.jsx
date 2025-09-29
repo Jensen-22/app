@@ -1,109 +1,27 @@
-import { useId, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import './App.css'
 
-const SPECTRA = [
-  {
-    id: 'chlorophyll-extract',
-    name: 'Chlorophyll Extract',
-    project: 'Leaf Pigment Stability Week 4',
-    collectedOn: '2024-04-18',
-    solvent: '90% acetone',
-    temperature: '22 °C',
-    instrument: 'Shimadzu UV-2600 UV-Vis',
-    normalization: 'Absorbance normalized to 1 cm cuvette path length',
-    summary:
-      'Strong Soret band near 430 nm with a secondary Q-band at 662 nm indicating intact chlorophyll a with minor pheophytinization.',
-    spectrum: [
-      { wavelength: 390, intensity: 0.18 },
-      { wavelength: 410, intensity: 0.36 },
-      { wavelength: 430, intensity: 0.92 },
-      { wavelength: 450, intensity: 0.58 },
-      { wavelength: 470, intensity: 0.36 },
-      { wavelength: 500, intensity: 0.42 },
-      { wavelength: 550, intensity: 0.30 },
-      { wavelength: 600, intensity: 0.54 },
-      { wavelength: 630, intensity: 0.74 },
-      { wavelength: 650, intensity: 0.82 },
-      { wavelength: 662, intensity: 0.87 },
-      { wavelength: 680, intensity: 0.78 },
-      { wavelength: 700, intensity: 0.46 },
-    ],
-    peaks: [
-      { wavelength: 430, intensity: 0.92, assignment: 'Soret transition (π→π*)' },
-      { wavelength: 662, intensity: 0.87, assignment: 'Qy transition, chlorophyll a' },
-    ],
-    quality: 'High',
-  },
-  {
-    id: 'anthocyanin',
-    name: 'Anthocyanin Fraction',
-    project: 'Berry Pigment Profiling',
-    collectedOn: '2024-04-22',
-    solvent: 'Methanol + 0.1% HCl',
-    temperature: '20 °C',
-    instrument: 'Thermo Scientific Evolution 350',
-    normalization: 'Baseline corrected to blank solvent at 540 nm',
-    summary:
-      'Dominant λmax at 526 nm consistent with cyanidin-based anthocyanins. Subtle shoulder in the blue region indicates co-pigmentation.',
-    spectrum: [
-      { wavelength: 380, intensity: 0.12 },
-      { wavelength: 400, intensity: 0.21 },
-      { wavelength: 430, intensity: 0.35 },
-      { wavelength: 460, intensity: 0.48 },
-      { wavelength: 490, intensity: 0.64 },
-      { wavelength: 510, intensity: 0.82 },
-      { wavelength: 526, intensity: 0.95 },
-      { wavelength: 540, intensity: 0.88 },
-      { wavelength: 560, intensity: 0.74 },
-      { wavelength: 600, intensity: 0.46 },
-      { wavelength: 640, intensity: 0.28 },
-      { wavelength: 680, intensity: 0.16 },
-    ],
-    peaks: [
-      { wavelength: 526, intensity: 0.95, assignment: 'π→π* transition, cyanidin derivatives' },
-      { wavelength: 460, intensity: 0.48, assignment: 'Blue co-pigmentation shoulder' },
-    ],
-    quality: 'Research grade',
-  },
-  {
-    id: 'protein-aromatic',
-    name: 'Protein Aromatic Residues',
-    project: 'Protein Folding Monitoring',
-    collectedOn: '2024-04-26',
-    solvent: 'Phosphate buffer pH 7.4',
-    temperature: '25 °C',
-    instrument: 'Jasco J-815 CD with absorption detector',
-    normalization: 'Absorbance scaled to molar extinction at 280 nm',
-    summary:
-      'Tryptophan band centered near 280 nm with phenylalanine shoulder around 258 nm. No scattering artifacts observed.',
-    spectrum: [
-      { wavelength: 240, intensity: 0.20 },
-      { wavelength: 250, intensity: 0.32 },
-      { wavelength: 258, intensity: 0.44 },
-      { wavelength: 265, intensity: 0.52 },
-      { wavelength: 275, intensity: 0.68 },
-      { wavelength: 280, intensity: 0.94 },
-      { wavelength: 290, intensity: 0.88 },
-      { wavelength: 300, intensity: 0.64 },
-      { wavelength: 310, intensity: 0.42 },
-      { wavelength: 320, intensity: 0.30 },
-    ],
-    peaks: [
-      { wavelength: 280, intensity: 0.94, assignment: 'Tryptophan π→π*' },
-      { wavelength: 258, intensity: 0.44, assignment: 'Phenylalanine ring transition' },
-    ],
-    quality: 'Pass',
-  },
-]
-
-const xTicks = [
-  240, 260, 280, 300, 320, 340, 360, 380, 400, 420, 440, 460, 480, 500, 520, 540, 560, 580, 600,
-  620, 640, 660, 680, 700
-]
-
 const VISIBLE_RANGE = { min: 380, max: 780 }
+const X_TICKS = [380, 420, 460, 500, 540, 580, 620, 660, 700, 740, 780]
+const DEFAULT_DATASET = `410 0.08
+430 0.12
+450 0.2
+470 0.42
+490 0.58
+510 0.76
+530 0.92
+550 0.78
+570 0.54
+590 0.32
+610 0.22
+630 0.18
+650 0.16`
 
-function wavelengthToRGB(wavelength) {
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max)
+}
+
+function wavelengthToRGB(wavelength, reflectance = 1) {
   if (Number.isNaN(wavelength) || wavelength < VISIBLE_RANGE.min || wavelength > VISIBLE_RANGE.max) {
     return { r: 0, g: 0, b: 0, alpha: 0 }
   }
@@ -131,13 +49,15 @@ function wavelengthToRGB(wavelength) {
     red = 1
   }
 
-  let intensityFactor = 1
+  let visibilityFactor = 1
   if (wavelength < 420) {
-    intensityFactor = 0.3 + (0.7 * (wavelength - 380)) / (420 - 380)
+    visibilityFactor = 0.3 + (0.7 * (wavelength - 380)) / (420 - 380)
   } else if (wavelength > 700) {
-    intensityFactor = 0.3 + (0.7 * (VISIBLE_RANGE.max - wavelength)) / (VISIBLE_RANGE.max - 700)
+    visibilityFactor = 0.3 + (0.7 * (VISIBLE_RANGE.max - wavelength)) / (VISIBLE_RANGE.max - 700)
   }
 
+  const reflectanceFactor = clamp(reflectance, 0, 1)
+  const intensityFactor = visibilityFactor * reflectanceFactor
   const normalise = (value) => Math.round(255 * value * intensityFactor)
 
   return {
@@ -155,429 +75,313 @@ function formatRGB({ r, g, b, alpha }) {
   return `rgb(${r}, ${g}, ${b})`
 }
 
-function SpectralChart({ spectrum, peaks, title }) {
-  const width = 640
-  const height = 280
-  const padding = { top: 20, right: 20, bottom: 40, left: 48 }
-  const titleId = useId()
+function parseDataset(input) {
+  const points = []
+  const warnings = []
 
-  const minWavelength = Math.min(...spectrum.map((point) => point.wavelength))
-  const maxWavelength = Math.max(...spectrum.map((point) => point.wavelength))
-  const maxIntensity = Math.max(...spectrum.map((point) => point.intensity))
+  input.split(/\n/).forEach((line, lineIndex) => {
+    const trimmed = line.trim()
+    if (!trimmed) {
+      return
+    }
 
-  const toX = (wavelength) => {
-    return (
-      padding.left +
-      ((wavelength - minWavelength) / (maxWavelength - minWavelength)) *
-        (width - padding.left - padding.right)
-    )
+    const numbers = trimmed
+      .split(/[\s,]+/)
+      .map((token) => Number.parseFloat(token))
+      .filter((value) => !Number.isNaN(value))
+
+    if (numbers.length < 2) {
+      warnings.push(`Line ${lineIndex + 1}: enter both wavelength and reflectance values.`)
+      return
+    }
+
+    const [wavelength, reflectance] = numbers
+    if (wavelength < VISIBLE_RANGE.min || wavelength > VISIBLE_RANGE.max) {
+      warnings.push(`Line ${lineIndex + 1}: ${wavelength.toFixed(1)} nm is outside the visible range.`)
+      return
+    }
+
+    if (reflectance < 0 || reflectance > 1) {
+      warnings.push(`Line ${lineIndex + 1}: reflectance ${reflectance.toFixed(2)} must be between 0 and 1.`)
+      return
+    }
+
+    points.push({ wavelength, reflectance })
+  })
+
+  points.sort((a, b) => a.wavelength - b.wavelength)
+  return { points, warnings }
+}
+
+function detectPeaks(points) {
+  if (points.length < 2) {
+    return []
   }
 
-  const toY = (intensity) => {
-    return (
-      height -
-      padding.bottom -
-      (intensity / maxIntensity) * (height - padding.top - padding.bottom)
-    )
+  const peaks = []
+
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index]
+    const prev = points[index - 1]
+    const next = points[index + 1]
+
+    const isLeftHigher = !prev || current.reflectance >= prev.reflectance
+    const isRightHigher = !next || current.reflectance >= next.reflectance
+    const isStrictPeak =
+      (prev && current.reflectance > prev.reflectance) ||
+      (next && current.reflectance > next.reflectance)
+
+    if (isLeftHigher && isRightHigher && (prev || next)) {
+      if (!prev || !next || isStrictPeak) {
+        peaks.push({ ...current, index })
+      }
+    }
   }
 
-  const pathD = spectrum
+  return peaks.sort((a, b) => b.reflectance - a.reflectance)
+}
+
+function formatReflectance(value) {
+  return value >= 0.995 ? '1.00' : value.toFixed(2)
+}
+
+function ReflectanceChart({ points, peaks }) {
+  const width = 720
+  const height = 360
+  const padding = { top: 36, right: 32, bottom: 56, left: 72 }
+
+  const chartWidth = width - padding.left - padding.right
+  const chartHeight = height - padding.top - padding.bottom
+
+  const maxReflectance = points.length > 0 ? Math.max(1, ...points.map((point) => point.reflectance)) : 1
+
+  const toX = (wavelength) =>
+    padding.left + ((wavelength - VISIBLE_RANGE.min) / (VISIBLE_RANGE.max - VISIBLE_RANGE.min)) * chartWidth
+
+  const toY = (reflectance) =>
+    padding.top + chartHeight - (reflectance / maxReflectance) * chartHeight
+
+  const pathD = points
     .map((point, index) => {
-      const prefix = index === 0 ? 'M' : 'L'
-      return `${prefix}${toX(point.wavelength)},${toY(point.intensity)}`
+      const command = index === 0 ? 'M' : 'L'
+      return `${command}${toX(point.wavelength)},${toY(point.reflectance)}`
     })
     .join(' ')
 
-  const areaPath = `${pathD} L${toX(spectrum[spectrum.length - 1].wavelength)},${
-    height - padding.bottom
-  } L${toX(spectrum[0].wavelength)},${height - padding.bottom} Z`
+  const areaPath = points.length
+    ? `${pathD} L${toX(points[points.length - 1].wavelength)},${padding.top + chartHeight} L${toX(points[0].wavelength)},${
+        padding.top + chartHeight
+      } Z`
+    : ''
+
+  const yTickCount = 4
+  const yTicks = Array.from({ length: yTickCount + 1 }, (_, tickIndex) =>
+    Number.parseFloat(((maxReflectance / yTickCount) * tickIndex).toFixed(2))
+  )
 
   return (
-    <figure className="spectral-chart" aria-labelledby={titleId}>
-      <figcaption id={titleId} className="sr-only">
-        {title}
+    <figure className="chart" aria-labelledby="chart-title">
+      <figcaption id="chart-title" className="sr-only">
+        Reflectance spectrum plotted against wavelength in nanometres
       </figcaption>
       <svg
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={`${title}. Peak intensity ${maxIntensity.toFixed(2)} absorbance units.`}
+        aria-label="Reflectance versus wavelength"
         preserveAspectRatio="xMidYMid meet"
       >
         <defs>
-          <linearGradient id="spectrum-gradient" x1="0%" x2="100%" y1="0%" y2="0%">
+          <linearGradient id="line-gradient" x1="0%" x2="100%" y1="0%" y2="0%">
             <stop offset="0%" stopColor="#38bdf8" />
             <stop offset="50%" stopColor="#a855f7" />
             <stop offset="100%" stopColor="#f472b6" />
           </linearGradient>
-          <linearGradient id="fill-gradient" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.6" />
+          <linearGradient id="area-gradient" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.35" />
             <stop offset="100%" stopColor="#0f172a" stopOpacity="0" />
           </linearGradient>
-          <radialGradient id="grid-bg">
-            <stop offset="0%" stopColor="#0f172a" stopOpacity="0.05" />
-            <stop offset="100%" stopColor="#0f172a" stopOpacity="0.3" />
-          </radialGradient>
         </defs>
+
         <rect
           x={padding.left}
           y={padding.top}
-          width={width - padding.left - padding.right}
-          height={height - padding.top - padding.bottom}
-          fill="url(#grid-bg)"
-          className="chart-surface"
+          width={chartWidth}
+          height={chartHeight}
+          className="chart__surface"
         />
-        <g className="grid">
-          {xTicks
-            .filter((tick) => tick > minWavelength && tick < maxWavelength)
-            .map((tick) => (
-              <line
-                key={tick}
-                x1={toX(tick)}
-                x2={toX(tick)}
-                y1={padding.top}
-                y2={height - padding.bottom}
-              />
-            ))}
-          {[0.25, 0.5, 0.75, 1].map((fraction) => (
+
+        <g className="chart__grid">
+          {X_TICKS.map((tick) => (
+            <line key={tick} x1={toX(tick)} x2={toX(tick)} y1={padding.top} y2={padding.top + chartHeight} />
+          ))}
+          {yTicks.map((tick) => (
             <line
-              key={fraction}
+              key={`y-${tick}`}
               x1={padding.left}
-              x2={width - padding.right}
-              y1={toY(maxIntensity * fraction)}
-              y2={toY(maxIntensity * fraction)}
+              x2={padding.left + chartWidth}
+              y1={toY(tick)}
+              y2={toY(tick)}
             />
           ))}
         </g>
-        <path d={pathD} stroke="url(#spectrum-gradient)" fill="none" strokeWidth={3} />
-        <path d={areaPath} fill="url(#fill-gradient)" opacity={0.2} />
-        <g className="axes">
-          <line
-            x1={padding.left}
-            x2={width - padding.right}
-            y1={height - padding.bottom}
-            y2={height - padding.bottom}
-          />
-          <line x1={padding.left} x2={padding.left} y1={padding.top} y2={height - padding.bottom} />
+
+        {points.length > 0 && (
+          <>
+            <path d={pathD} fill="none" stroke="url(#line-gradient)" strokeWidth={3} strokeLinejoin="round" />
+            <path d={areaPath} fill="url(#area-gradient)" />
+            <g className="chart__points">
+              {points.map((point) => (
+                <circle
+                  key={`${point.wavelength}-${point.reflectance}`}
+                  cx={toX(point.wavelength)}
+                  cy={toY(point.reflectance)}
+                  r={4}
+                  className="chart__point"
+                />
+              ))}
+            </g>
+            <g className="chart__peaks">
+              {peaks.map((peak) => (
+                <g key={`peak-${peak.wavelength}-${peak.reflectance}`} className="chart__peak">
+                  <line
+                    x1={toX(peak.wavelength)}
+                    x2={toX(peak.wavelength)}
+                    y1={toY(peak.reflectance)}
+                    y2={padding.top + chartHeight}
+                  />
+                  <circle cx={toX(peak.wavelength)} cy={toY(peak.reflectance)} r={7} />
+                  <text x={toX(peak.wavelength)} y={toY(peak.reflectance) - 14}>
+                    {`${peak.wavelength.toFixed(0)} nm`}
+                  </text>
+                </g>
+              ))}
+            </g>
+          </>
+        )}
+
+        <g className="chart__axes">
+          <line x1={padding.left} x2={padding.left + chartWidth} y1={padding.top + chartHeight} y2={padding.top + chartHeight} />
+          <line x1={padding.left} x2={padding.left} y1={padding.top} y2={padding.top + chartHeight} />
         </g>
-        <g className="tick-labels">
-          {xTicks
-            .filter((tick) => tick >= minWavelength && tick <= maxWavelength)
-            .map((tick) => (
-              <text
-                key={tick}
-                x={toX(tick)}
-                y={height - padding.bottom + 24}
-                className="tick-label tick-label-x"
-                textAnchor="middle"
-              >
-                {tick}
-              </text>
-            ))}
-          {[0, 0.25, 0.5, 0.75, 1].map((fraction) => (
-            <text
-              key={fraction}
-              x={padding.left - 18}
-              y={toY(maxIntensity * fraction) + 4}
-              className="tick-label tick-label-y"
-              textAnchor="end"
-            >
-              {(maxIntensity * fraction).toFixed(2)}
+
+        <g className="chart__labels">
+          {X_TICKS.map((tick) => (
+            <text key={`tick-x-${tick}`} x={toX(tick)} y={padding.top + chartHeight + 28} className="chart__tick chart__tick--x">
+              {tick}
             </text>
           ))}
-        </g>
-        <g className="peaks">
-          {peaks.map((peak) => (
-            <g key={peak.wavelength}>
-              <line
-                x1={toX(peak.wavelength)}
-                x2={toX(peak.wavelength)}
-                y1={toY(peak.intensity)}
-                y2={height - padding.bottom}
-                className="peak-marker"
-              />
-              <circle
-                cx={toX(peak.wavelength)}
-                cy={toY(peak.intensity)}
-                r={6}
-                className="peak-dot"
-              />
-              <text
-                x={toX(peak.wavelength)}
-                y={toY(peak.intensity) - 12}
-                className="peak-label"
-              >
-                {peak.wavelength} nm
-              </text>
-            </g>
+          {yTicks.map((tick) => (
+            <text key={`tick-y-${tick}`} x={padding.left - 16} y={toY(tick) + 4} className="chart__tick chart__tick--y">
+              {tick.toFixed(2)}
+            </text>
           ))}
+          <text x={padding.left + chartWidth / 2} y={height - 12} className="chart__axis-label">
+            Wavelength (nm)
+          </text>
+          <text
+            className="chart__axis-label"
+            transform={`translate(${24} ${padding.top + chartHeight / 2}) rotate(-90)`}
+          >
+            Reflectance
+          </text>
         </g>
-        <text
-          x={(padding.left + width - padding.right) / 2}
-          y={height - 4}
-          className="axis-label"
-          textAnchor="middle"
-        >
-          Wavelength (nm)
-        </text>
-        <text
-          className="axis-label"
-          textAnchor="middle"
-          transform={`translate(18 ${(padding.top + height - padding.bottom) / 2}) rotate(-90)`}
-        >
-          Intensity (a.u.)
-        </text>
       </svg>
+
+      {points.length === 0 && (
+        <p className="chart__empty" role="status">
+          Add wavelength and reflectance values to plot the spectrum.
+        </p>
+      )}
     </figure>
   )
 }
 
-function formatRange(spectrum) {
-  const minWavelength = Math.min(...spectrum.map((point) => point.wavelength))
-  const maxWavelength = Math.max(...spectrum.map((point) => point.wavelength))
-  return `${minWavelength}-${maxWavelength} nm`
-}
-
-function dominantPeak(sample) {
-  return sample.peaks.reduce((highest, peak) => {
-    if (!highest || peak.intensity > highest.intensity) {
-      return peak
-    }
-    return highest
-  }, null)
-}
-
-function RGBSpectrumVisualizer({ input, onChange }) {
-  const { wavelengths, invalidTokens } = useMemo(() => {
-    const tokens = input.split(/[^0-9.]+/)
-    const parsed = tokens
-      .map((token) => Number.parseFloat(token))
-      .filter((value) => !Number.isNaN(value))
-
-    const valid = parsed.filter(
-      (value) => value >= VISIBLE_RANGE.min && value <= VISIBLE_RANGE.max
-    )
-
-    const invalid = parsed.filter(
-      (value) => value < VISIBLE_RANGE.min || value > VISIBLE_RANGE.max
-    )
-
-    return { wavelengths: valid, invalidTokens: invalid }
-  }, [input])
-
-  const spectrum = useMemo(
-    () =>
-      wavelengths.map((wavelength) => ({
-        wavelength,
-        color: wavelengthToRGB(wavelength),
-      })),
-    [wavelengths]
-  )
-
-  const formatWavelength = (value) => (Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1))
-  const formatInvalid = formatWavelength
-
-  const gradientStops = [...spectrum]
-    .sort((a, b) => a.wavelength - b.wavelength)
-    .map(({ wavelength, color }) => {
-      const position = ((wavelength - VISIBLE_RANGE.min) / (VISIBLE_RANGE.max - VISIBLE_RANGE.min)) * 100
-      return `${formatRGB(color)} ${position.toFixed(1)}%`
-    })
-    .join(', ')
-
-  const gradientStyle = spectrum.length
-    ? { backgroundImage: `linear-gradient(90deg, ${gradientStops})` }
-    : { backgroundColor: 'rgba(15, 23, 42, 0.65)' }
-
-  return (
-    <section className="panel panel-rgb" aria-labelledby="rgb-visualizer-heading">
-      <div className="panel-header">
-        <h3 id="rgb-visualizer-heading">RGB Spectrum Visualizer</h3>
-        <p className="panel-description">
-          Enter wavelengths between 380 nm and 780 nm to approximate their contribution to the visible
-          RGB spectrum.
-        </p>
-      </div>
-
-      <label className="rgb-input-label" htmlFor="wavelength-dataset">
-        Wavelength dataset
-      </label>
-      <textarea
-        id="wavelength-dataset"
-        value={input}
-        onChange={(event) => onChange(event.target.value)}
-        className="rgb-input"
-        placeholder="e.g. 450, 495, 570, 615, 680"
-        rows={3}
-      />
-      <p className="input-hint">
-        Separate values with commas, spaces, or line breaks. Values outside the visible range are ignored.
-      </p>
-      {invalidTokens.length > 0 && (
-        <p className="input-warning" role="status">
-          Ignored {invalidTokens.length} value{invalidTokens.length > 1 ? 's' : ''} outside the visible
-          range{invalidTokens.length <= 5
-            ? `: ${invalidTokens.map((value) => formatInvalid(value)).join(', ')}`
-            : ` (showing first 5: ${invalidTokens
-                .slice(0, 5)
-                .map((value) => formatInvalid(value))
-                .join(', ')}…)`}.
-        </p>
-      )}
-
-      <div
-        className="spectrum-preview"
-        style={gradientStyle}
-        role="img"
-        aria-label={
-          spectrum.length
-            ? `Spectrum preview with ${spectrum.length} wavelength${spectrum.length > 1 ? 's' : ''}.`
-            : 'Empty spectrum preview'
-        }
-      />
-
-      <ul className="rgb-swatches">
-        {spectrum.map(({ wavelength, color }) => {
-          const cssColor = formatRGB(color)
-          return (
-            <li key={wavelength} className="rgb-swatch">
-              <span className="swatch-chip" style={{ backgroundColor: cssColor }} aria-hidden="true" />
-              <div>
-                <p className="swatch-wavelength">{formatWavelength(wavelength)} nm</p>
-                <p className="swatch-rgb">{cssColor}</p>
-                <p className="swatch-alpha">Relative intensity ×{color.alpha.toFixed(2)}</p>
-              </div>
-            </li>
-          )
-        })}
-        {spectrum.length === 0 && (
-          <li className="rgb-swatch empty">Add wavelengths to see their approximate colours.</li>
-        )}
-      </ul>
-    </section>
-  )
-}
-
 function App() {
-  const [selectedSampleId, setSelectedSampleId] = useState(SPECTRA[0].id)
-  const [wavelengthInput, setWavelengthInput] = useState('450, 495, 570, 615, 680')
+  const [dataset, setDataset] = useState(DEFAULT_DATASET)
 
-  const selectedSample = useMemo(
-    () => SPECTRA.find((sample) => sample.id === selectedSampleId) ?? SPECTRA[0],
-    [selectedSampleId]
-  )
+  const { points, warnings } = useMemo(() => parseDataset(dataset), [dataset])
+  const peaks = useMemo(() => detectPeaks(points).slice(0, 5), [points])
+
+  const previewStyle = useMemo(() => {
+    if (points.length === 0) {
+      return {
+        backgroundColor: 'rgba(15, 23, 42, 0.7)',
+        backgroundImage: 'radial-gradient(circle at top, rgba(56, 189, 248, 0.2), transparent 65%)',
+      }
+    }
+
+    const gradientStops = points
+      .map((point) => {
+        const color = wavelengthToRGB(point.wavelength, point.reflectance)
+        const position = ((point.wavelength - VISIBLE_RANGE.min) / (VISIBLE_RANGE.max - VISIBLE_RANGE.min)) * 100
+        return `${formatRGB(color)} ${position.toFixed(1)}%`
+      })
+      .join(', ')
+
+    return {
+      backgroundColor: 'rgba(15, 23, 42, 0.6)',
+      backgroundImage: `linear-gradient(90deg, ${gradientStops})`,
+    }
+  }, [points])
 
   return (
-    <div className="dashboard">
-      <header className="header">
-        <div>
-          <p className="badge">Spectroscopy Lab Notebook</p>
-          <h1>Spectral Results Overview</h1>
-          <p className="lede">
-            Explore recent absorbance scans captured across our pigment and protein studies. Select a
-            sample to review its spectral fingerprints, annotated peaks, and acquisition metadata.
-          </p>
-        </div>
-        <div className="selector">
-          <label htmlFor="sample-selector">Sample</label>
-          <select
-            id="sample-selector"
-            value={selectedSampleId}
-            onChange={(event) => setSelectedSampleId(event.target.value)}
-          >
-            {SPECTRA.map((sample) => (
-              <option key={sample.id} value={sample.id}>
-                {sample.name}
-              </option>
-            ))}
-          </select>
-        </div>
+    <div className="app">
+      <header className="app__header">
+        <h1>RGB Reflectance Spectrum Visualiser</h1>
+        <p>
+          Enter a dataset of reflected wavelengths and their relative reflectance values to explore how the spectrum shifts
+          across the visible range. Peaks highlight where an object reflects the most light.
+        </p>
       </header>
 
-      <main className="content">
-        <section className="panel panel-chart">
-          <div className="panel-header">
-            <h2>{selectedSample.name}</h2>
-            <div className="metadata">
-              <span>{selectedSample.project}</span>
-              <span>Collected {selectedSample.collectedOn}</span>
-              <span>{selectedSample.instrument}</span>
-            </div>
+      <main className="visualiser">
+        <section className="visualiser__inputs" aria-labelledby="dataset-label">
+          <div className="inputs__header">
+            <h2 id="dataset-label">Wavelength dataset</h2>
+            <p>Provide wavelength (nm) and reflectance pairs. One pair per line, separated by spaces or commas.</p>
           </div>
-          <p className="panel-summary">{selectedSample.summary}</p>
-          <SpectralChart
-            spectrum={selectedSample.spectrum}
-            peaks={selectedSample.peaks}
-            title={`${selectedSample.name} absorbance spectrum`}
+          <textarea
+            className="dataset-input"
+            value={dataset}
+            onChange={(event) => setDataset(event.target.value)}
+            rows={10}
+            spellCheck="false"
+            aria-describedby="dataset-hint"
           />
+          <p id="dataset-hint" className="input-hint">
+            Visible wavelengths run from 380&nbsp;nm to 780&nbsp;nm. Reflectance values should be between 0 and 1.
+          </p>
+          {warnings.length > 0 && (
+            <ul className="input-warnings" role="status">
+              {warnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          )}
+          <div className="spectrum-preview" style={previewStyle} role="img" aria-label="RGB preview of the reflected spectrum" />
         </section>
 
-        <section className="panel panel-details">
-          <h3>Acquisition Details</h3>
-          <dl className="details-grid">
-            <div>
-              <dt>Solvent</dt>
-              <dd>{selectedSample.solvent}</dd>
-            </div>
-            <div>
-              <dt>Temperature</dt>
-              <dd>{selectedSample.temperature}</dd>
-            </div>
-            <div>
-              <dt>Normalization</dt>
-              <dd>{selectedSample.normalization}</dd>
-            </div>
-            <div>
-              <dt>Quality Check</dt>
-              <dd className={`quality quality-${selectedSample.quality.toLowerCase().replace(/\s+/g, '-')}`}>
-                {selectedSample.quality}
-              </dd>
-            </div>
-          </dl>
+        <section className="visualiser__chart">
+          <h2>Reflectance spectrum</h2>
+          <ReflectanceChart points={points} peaks={peaks} />
+        </section>
 
-          <div className="peak-highlights">
-            <h4>Annotated Peaks</h4>
-            <ul>
-              {selectedSample.peaks.map((peak) => (
-                <li key={peak.wavelength}>
-                  <span className="peak-wavelength">{peak.wavelength} nm</span>
-                  <span className="peak-intensity">{peak.intensity.toFixed(2)} a.u.</span>
-                  <p>{peak.assignment}</p>
+        <section className="visualiser__peaks">
+          <h2>Detected reflectance peaks</h2>
+          {peaks.length > 0 ? (
+            <ul className="peaks-list">
+              {peaks.map((peak) => (
+                <li key={`peak-list-${peak.wavelength}-${peak.reflectance}`}>
+                  <span className="peaks-list__wavelength">{peak.wavelength.toFixed(0)} nm</span>
+                  <span className="peaks-list__reflectance">{formatReflectance(peak.reflectance)}</span>
+                  <span className="peaks-list__label">relative reflectance</span>
                 </li>
               ))}
             </ul>
-          </div>
+          ) : (
+            <p className="peaks-empty">Add at least three points to detect peaks.</p>
+          )}
         </section>
-
-        <section className="panel panel-table">
-          <h3>Sample Comparison</h3>
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Sample</th>
-                <th scope="col">λ Range</th>
-                <th scope="col">Dominant Peak</th>
-                <th scope="col">Peak Intensity</th>
-                <th scope="col">Quality</th>
-              </tr>
-            </thead>
-            <tbody>
-              {SPECTRA.map((sample) => {
-                const peak = dominantPeak(sample)
-                return (
-                  <tr key={sample.id} className={sample.id === selectedSample.id ? 'active' : ''}>
-                    <th scope="row">{sample.name}</th>
-                    <td>{formatRange(sample.spectrum)}</td>
-                    <td>{peak ? `${peak.wavelength} nm` : '—'}</td>
-                    <td>{peak ? peak.intensity.toFixed(2) : '—'} a.u.</td>
-                    <td>{sample.quality}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </section>
-
-        <RGBSpectrumVisualizer input={wavelengthInput} onChange={setWavelengthInput} />
       </main>
     </div>
   )
