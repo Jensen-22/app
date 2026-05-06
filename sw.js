@@ -1,4 +1,4 @@
-const CACHE_NAME = "plant-spectrum-health-v3";
+const CACHE_NAME = "plant-spectrum-health-v4";
 const APP_ASSETS = [
   "./",
   "./index.html",
